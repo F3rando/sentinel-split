@@ -6,7 +6,7 @@ import { useAppStore } from '@/lib/store';
 // Expected payload: { receipt_id: string, assignments: { item_id: string, assigned_to: string[] }[] }
 
 export function ReceiptHealer() {
-  const { currentReceipt, assignItem, setActiveTab, friends } = useAppStore();
+  const { currentReceipt, assignItem, setActiveTab, friends, updateTaxTip } = useAppStore();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   if (!currentReceipt) {
@@ -165,15 +165,35 @@ export function ReceiptHealer() {
         })}
       </div>
 
-      {/* Tax & Tip */}
+      {/* Tax & Tip — TODO [BACKEND]: Tax/tip autofilled from FastAPI /ocr, editable for user corrections */}
       <div className="rounded-lg border border-border bg-card p-4 shadow-card">
-        <div className="flex justify-between text-sm">
+        <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Tax</span>
-          <span className="font-semibold text-foreground">${currentReceipt.tax.toFixed(2)}</span>
+          <div className="flex items-center gap-0.5">
+            <span className="text-foreground font-semibold">$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={currentReceipt.tax}
+              onChange={(e) => updateTaxTip(parseFloat(e.target.value) || 0, currentReceipt.tip)}
+              className="w-20 rounded-md border border-border bg-secondary px-2 py-1 text-right text-sm font-semibold text-foreground outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
         </div>
-        <div className="mt-1 flex justify-between text-sm">
+        <div className="mt-1 flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Tip</span>
-          <span className="font-semibold text-foreground">${currentReceipt.tip.toFixed(2)}</span>
+          <div className="flex items-center gap-0.5">
+            <span className="text-foreground font-semibold">$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={currentReceipt.tip}
+              onChange={(e) => updateTaxTip(currentReceipt.tax, parseFloat(e.target.value) || 0)}
+              className="w-20 rounded-md border border-border bg-secondary px-2 py-1 text-right text-sm font-semibold text-foreground outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
         </div>
         <div className="mt-2 flex justify-between border-t border-border pt-2 text-sm">
           <span className="font-bold text-foreground">Total</span>
