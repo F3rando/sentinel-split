@@ -18,8 +18,8 @@ export function Settlement() {
   }
 
   const subtotal = currentReceipt.items.reduce((s, i) => s + i.price, 0);
-  const totalWithTaxTip = subtotal + currentReceipt.tax + currentReceipt.tip;
-  const taxTipMultiplier = totalWithTaxTip / subtotal;
+  const grandTotal = currentReceipt.total;
+  const taxTipMultiplier = grandTotal / subtotal;
 
   // Calculate per-person totals using dynamic friends from store
   const personTotals: Record<string, number> = {};
