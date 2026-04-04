@@ -27,6 +27,7 @@ export interface Receipt {
   items: ReceiptItem[];
   tax: number;
   tip: number;
+  total: number;
 }
 
 export interface AgentMessage {
@@ -49,6 +50,7 @@ export const mockReceipt: Receipt = {
   created_at: new Date().toISOString(),
   tax: 5.82,
   tip: 13.90,
+  total: 89.22,
   items: [
     {
       id: 'i1',

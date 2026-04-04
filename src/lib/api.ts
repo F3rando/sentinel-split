@@ -60,5 +60,6 @@ export async function scanReceiptAPI(file: File): Promise<Receipt> {
     items,
     tax: data.tax,
     tip: data.tip,
+    total: data.total,
   };
 }
