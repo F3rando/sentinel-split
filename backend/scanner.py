@@ -8,7 +8,7 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 def scan_receipt(image_bytes: bytes) -> dict:
     # Send image to Gemini Vision
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=[
             {
                 "parts": [

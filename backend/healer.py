@@ -59,3 +59,7 @@ def get_confidence(item_name: str) -> float:
 
     confidence = max(0.0, 1.0 - (issues * 0.2))
     return round(confidence, 2)
+
+
+def should_heal(item_name: str) -> bool:
+    return get_confidence(item_name) < 0.80
