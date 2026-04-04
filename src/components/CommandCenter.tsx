@@ -5,19 +5,26 @@ import { recentSplits } from '@/lib/mockData';
 import { useRef } from 'react';
 
 export function CommandCenter() {
-  const { startHealingSimulation, setActiveTab } = useAppStore();
+  const { startHealingSimulation, setActiveTab, setUploadedImage } = useAppStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleScan = () => {
-    // Trigger file input (camera on mobile)
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = () => {
-    // Simulate receipt processing
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // TODO [BACKEND]: Send image file to FastAPI POST /ocr, receive parsed items
+      // Expected endpoint: POST /ocr
+      // Expected payload: FormData with 'file' field
+      // Expected response: { items: ReceiptItem[], restaurant_name: string, tax: number, tip: number }
+      setUploadedImage(file);
+    }
+    // For now, run local simulation
     startHealingSimulation();
-    // After a short delay, navigate to receipt view
-    setTimeout(() => setActiveTab('receipt'), 800);
+    // Navigate to group setup so user can add people before assigning
+    setTimeout(() => setActiveTab('group'), 800);
   };
 
   return (
@@ -85,8 +92,11 @@ export function CommandCenter() {
       {/* Demo trigger */}
       <button
         onClick={() => {
+          // TODO [BACKEND]: Replace simulation with actual FastAPI calls:
+          // 1. POST /ocr with demo image → parsed items
+          // 2. POST /heal with parsed items → healed items
           startHealingSimulation();
-          setTimeout(() => setActiveTab('receipt'), 800);
+          setTimeout(() => setActiveTab('group'), 800);
         }}
         className="w-full rounded-lg border border-dashed border-accent/40 bg-accent/5 py-3 text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
       >

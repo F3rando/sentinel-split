@@ -1,9 +1,12 @@
-import { ExternalLink, TestTube } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { mockFriends } from '@/lib/mockData';
+
+// TODO [BACKEND]: Fetch final split calculations from FastAPI GET /split response
+// Expected endpoint: GET /split/{receipt_id}
+// Expected response: { splits: { friend_id: string, amount: number }[], self_amount: number }
 
 export function Settlement() {
-  const { currentReceipt } = useAppStore();
+  const { currentReceipt, friends } = useAppStore();
 
   if (!currentReceipt) {
     return (
@@ -18,15 +21,15 @@ export function Settlement() {
   const totalWithTaxTip = subtotal + currentReceipt.tax + currentReceipt.tip;
   const taxTipMultiplier = totalWithTaxTip / subtotal;
 
-  // Calculate per-person totals
+  // Calculate per-person totals using dynamic friends from store
   const personTotals: Record<string, number> = {};
-  
+
   currentReceipt.items.forEach((item) => {
     if (item.assigned_to.includes('all')) {
-      // Split among self + all friends
-      const splitCount = mockFriends.length + 1;
+      // Split among self + all friends (dynamic count)
+      const splitCount = friends.length + 1;
       const share = item.price / splitCount;
-      mockFriends.forEach((f) => {
+      friends.forEach((f) => {
         personTotals[f.id] = (personTotals[f.id] || 0) + share;
       });
       personTotals['self'] = (personTotals['self'] || 0) + share;
@@ -45,7 +48,7 @@ export function Settlement() {
     personTotals[id] = personTotals[id] * taxTipMultiplier;
   });
 
-  const friendTotals = mockFriends
+  const friendTotals = friends
     .filter((f) => personTotals[f.id] && personTotals[f.id] > 0)
     .map((f) => ({
       ...f,
@@ -54,6 +57,7 @@ export function Settlement() {
 
   const selfTotal = Math.round((personTotals['self'] || 0) * 100) / 100;
 
+  // TODO [BACKEND]: Venmo deep links use real usernames entered by the user
   const makeVenmoLink = (username: string, amount: number, note: string) =>
     `venmo://paycharge?txn=charge&recipients=${username}&amount=${amount.toFixed(2)}&note=${encodeURIComponent(note)}`;
 
@@ -113,19 +117,11 @@ export function Settlement() {
         ))}
       </div>
 
-      {/* Aman Test Button */}
-      <div className="mt-6 rounded-lg border border-dashed border-accent/40 bg-accent/5 p-4">
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Test Mode
-        </p>
-        <a
-          href="venmo://paycharge?txn=charge&recipients=amanpalanati&amount=1.00&note=SentinelSplit%20AI%20Test"
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-bold text-accent-foreground shadow-glow transition-all active:scale-[0.98]"
-        >
-          <TestTube className="h-4 w-4" />
-          Test Request $1.00 from Aman
-        </a>
-      </div>
+      {friendTotals.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border p-6 text-center">
+          <p className="text-sm text-muted-foreground">No friends have items assigned yet</p>
+        </div>
+      )}
 
       {/* Grand total */}
       <div className="rounded-lg border border-border bg-card p-4 shadow-card">

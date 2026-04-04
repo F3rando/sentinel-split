@@ -1,12 +1,14 @@
 import { Shield } from 'lucide-react';
 import { BottomNav } from '@/components/BottomNav';
 import { CommandCenter } from '@/components/CommandCenter';
+import { GroupSetup } from '@/components/GroupSetup';
 import { ReceiptHealer } from '@/components/ReceiptHealer';
 import { Settlement } from '@/components/Settlement';
 import { useAppStore } from '@/lib/store';
 
 const screens = {
   home: CommandCenter,
+  group: GroupSetup,
   receipt: ReceiptHealer,
   settle: Settlement,
 };
@@ -17,7 +19,6 @@ export default function Index() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
@@ -37,7 +38,6 @@ export default function Index() {
         </div>
       </header>
 
-      {/* Content */}
       <main className="mx-auto max-w-lg px-4 pb-24 pt-4">
         <Screen />
       </main>

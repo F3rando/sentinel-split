@@ -1,15 +1,29 @@
 import { create } from 'zustand';
-import { Receipt, AgentMessage, mockReceipt, healingMap } from './mockData';
+import { Receipt, AgentMessage, Friend, mockReceipt, healingMap } from './mockData';
+
+// TODO [BACKEND]: When FastAPI is ready, replace local state mutations with API calls
+// Expected endpoints: POST /ocr, POST /heal, POST /split
 
 interface AppState {
   currentReceipt: Receipt | null;
   agentMessages: AgentMessage[];
-  activeTab: 'home' | 'receipt' | 'settle';
-  setActiveTab: (tab: 'home' | 'receipt' | 'settle') => void;
+  activeTab: 'home' | 'group' | 'receipt' | 'settle';
+  friends: Friend[];
+  // TODO [BACKEND]: Add uploadedImage: File | null for sending to FastAPI POST /ocr
+  uploadedImage: File | null;
+
+  setActiveTab: (tab: 'home' | 'group' | 'receipt' | 'settle') => void;
   setCurrentReceipt: (receipt: Receipt | null) => void;
   addAgentMessage: (msg: Omit<AgentMessage, 'id' | 'timestamp'>) => void;
   startHealingSimulation: () => void;
   assignItem: (itemId: string, assignees: string[]) => void;
+
+  // Friends management
+  // TODO [BACKEND]: Pass friends list to FastAPI POST /split endpoint payload
+  addFriend: (name: string, venmo_username: string) => void;
+  removeFriend: (id: string) => void;
+  clearFriends: () => void;
+  setUploadedImage: (file: File | null) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -23,10 +37,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     },
   ],
   activeTab: 'home',
+  friends: [],
+  uploadedImage: null,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   setCurrentReceipt: (receipt) => set({ currentReceipt: receipt }),
+
+  setUploadedImage: (file) => set({ uploadedImage: file }),
 
   addAgentMessage: (msg) =>
     set((state) => ({
@@ -35,6 +53,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...state.agentMessages,
       ],
     })),
+
+  // TODO [BACKEND]: Replace with POST /friends or include in /split payload
+  addFriend: (name, venmo_username) =>
+    set((state) => ({
+      friends: [
+        ...state.friends,
+        {
+          id: crypto.randomUUID(),
+          name,
+          venmo_username,
+          profile_pic_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4`,
+        },
+      ],
+    })),
+
+  removeFriend: (id) =>
+    set((state) => ({
+      friends: state.friends.filter((f) => f.id !== id),
+    })),
+
+  clearFriends: () => set({ friends: [] }),
 
   assignItem: (itemId, assignees) =>
     set((state) => {
@@ -50,6 +89,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   startHealingSimulation: () => {
+    // TODO [BACKEND]: Replace this entire simulation with:
+    // 1. POST image to FastAPI /ocr → receive parsed items
+    // 2. POST parsed items to FastAPI /heal → receive healed items
+    // Expected payload: FormData with image file
+    // Expected response: { items: ReceiptItem[], restaurant_name: string, tax: number, tip: number }
+
     const receipt = { ...mockReceipt };
     set({
       currentReceipt: receipt,
@@ -67,7 +112,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     let delay = 1500;
 
     items.forEach((item, index) => {
-      // Searching message
       setTimeout(() => {
         const { addAgentMessage } = get();
         addAgentMessage({
@@ -77,7 +121,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       }, delay);
       delay += 1800;
 
-      // Healed message
       setTimeout(() => {
         const healedName = healingMap[item.original_ocr_name] || item.original_ocr_name;
         const { addAgentMessage } = get();
@@ -105,7 +148,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       delay += 1200;
     });
 
-    // Final message
     setTimeout(() => {
       const { addAgentMessage } = get();
       addAgentMessage({

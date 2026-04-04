@@ -1,8 +1,9 @@
-import { Home, Receipt, CreditCard } from 'lucide-react';
+import { Home, Users, Receipt, CreditCard } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 
 const tabs = [
   { id: 'home' as const, label: 'Command', icon: Home },
+  { id: 'group' as const, label: 'Group', icon: Users },
   { id: 'receipt' as const, label: 'Receipt', icon: Receipt },
   { id: 'settle' as const, label: 'Settle', icon: CreditCard },
 ];
@@ -33,7 +34,6 @@ export function BottomNav() {
           );
         })}
       </div>
-      {/* Safe area for mobile */}
       <div className="h-[env(safe-area-inset-bottom)]" />
     </nav>
   );
