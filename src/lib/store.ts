@@ -90,6 +90,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  updateTaxTip: (tax, tip) =>
+    set((state) => {
+      if (!state.currentReceipt) return state;
+      return {
+        currentReceipt: { ...state.currentReceipt, tax, tip },
+      };
+    }),
+
   startHealingSimulation: () => {
     // TODO [BACKEND]: Replace this entire simulation with:
     // 1. POST image to FastAPI /ocr → receive parsed items
