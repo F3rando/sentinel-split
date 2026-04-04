@@ -5,7 +5,7 @@ import { recentSplits } from '@/lib/mockData';
 import { useRef } from 'react';
 
 export function CommandCenter() {
-  const { startHealingSimulation, setActiveTab, setUploadedImage } = useAppStore();
+  const { startHealingSimulation, setActiveTab, setUploadedImage, scanReceipt } = useAppStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleScan = () => {
