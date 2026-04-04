@@ -17,6 +17,7 @@ interface AppState {
   assignItem: (itemId: string, assignees: string[]) => void;
   // TODO [BACKEND]: Tax/tip may come from FastAPI /ocr response, user can override here
   updateTaxTip: (tax: number, tip: number) => void;
+  scanReceipt: (file: File) => Promise<void>;
 
   // Friends management
   // TODO [BACKEND]: Pass friends list to FastAPI POST /split endpoint payload
