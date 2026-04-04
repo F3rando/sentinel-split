@@ -36,32 +36,8 @@ export interface AgentMessage {
   type: 'idle' | 'processing' | 'searching' | 'healed' | 'error';
 }
 
-export const mockFriends: Friend[] = [
-  {
-    id: 'f1',
-    name: 'Aman Palanti',
-    venmo_username: 'amanpalanati',
-    profile_pic_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=aman&backgroundColor=b6e3f4',
-  },
-  {
-    id: 'f2',
-    name: 'Sarah Chen',
-    venmo_username: 'sarachen',
-    profile_pic_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sarah&backgroundColor=ffd5dc',
-  },
-  {
-    id: 'f3',
-    name: 'Marcus Rivera',
-    venmo_username: 'marcusrivera',
-    profile_pic_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=marcus&backgroundColor=c0aede',
-  },
-  {
-    id: 'f4',
-    name: 'Priya Desai',
-    venmo_username: 'priyadesai',
-    profile_pic_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=priya&backgroundColor=d1f4d1',
-  },
-];
+// mockFriends removed — friends are now managed dynamically via Zustand store
+// TODO [BACKEND]: Friends could optionally be fetched from FastAPI if persisting groups
 
 export const mockReceipt: Receipt = {
   id: 'r1',
