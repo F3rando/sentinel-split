@@ -24,6 +24,9 @@ export async function scanReceiptAPI(file: File): Promise<Receipt> {
 
   const res = await fetch(`${FASTAPI_BASE_URL}/scan`, {
     method: 'POST',
+    headers: {
+      'ngrok-skip-browser-warning': 'true',
+    },
     body: formData,
   });
 
