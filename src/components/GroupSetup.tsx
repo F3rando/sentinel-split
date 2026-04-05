@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Minus, Trash2, Users, ArrowRight } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { createId } from '@/lib/id';
 
 // TODO [BACKEND]: If persisting groups, POST to FastAPI /groups endpoint
 // Expected payload: { friends: { name: string, venmo_username: string }[] }
@@ -16,11 +17,11 @@ export function GroupSetup() {
   const [inputs, setInputs] = useState<FriendInput[]>(
     friends.length > 0
       ? friends.map((f) => ({ tempId: f.id, name: f.name, venmo_username: f.venmo_username }))
-      : [{ tempId: crypto.randomUUID(), name: '', venmo_username: '' }]
+      : [{ tempId: createId(), name: '', venmo_username: '' }]
   );
 
   const addRow = () => {
-    setInputs((prev) => [...prev, { tempId: crypto.randomUUID(), name: '', venmo_username: '' }]);
+    setInputs((prev) => [...prev, { tempId: createId(), name: '', venmo_username: '' }]);
   };
 
   const removeRow = (tempId: string) => {

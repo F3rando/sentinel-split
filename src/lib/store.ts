@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Receipt, AgentMessage, Friend, mockReceipt, healingMap } from './mockData';
-import { scanReceiptAPI, healItemAPI } from './api';
+import { scanReceiptAPI, healBatchAPI } from './api';
+import { createId } from './id';
 
 interface AppState {
   currentReceipt: Receipt | null;
@@ -15,6 +16,8 @@ interface AppState {
   addAgentMessage: (msg: Omit<AgentMessage, 'id' | 'timestamp'>) => void;
   startHealingSimulation: () => void;
   assignItem: (itemId: string, assignees: string[]) => void;
+  /** Set every line item to split evenly among you + all friends (same as per-item "Split All"). */
+  splitAllItemsEvenly: () => void;
   // TODO [BACKEND]: Tax/tip may come from FastAPI /ocr response, user can override here
   updateTaxTip: (tax: number, tip: number) => void;
   scanReceipt: (file: File) => Promise<void>;
@@ -50,7 +53,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   addAgentMessage: (msg) =>
     set((state) => ({
       agentMessages: [
-        { ...msg, id: crypto.randomUUID(), timestamp: new Date() },
+        { ...msg, id: createId(), timestamp: new Date() },
         ...state.agentMessages,
       ],
     })),
@@ -61,7 +64,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       friends: [
         ...state.friends,
         {
-          id: crypto.randomUUID(),
+          id: createId(),
           name,
           venmo_username,
           profile_pic_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4`,
@@ -89,17 +92,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  updateTaxTip: (tax, tip) =>
+  splitAllItemsEvenly: () =>
     set((state) => {
       if (!state.currentReceipt) return state;
       return {
-        currentReceipt: { ...state.currentReceipt, tax, tip, total: state.currentReceipt.baseTotal + tip },
+        currentReceipt: {
+          ...state.currentReceipt,
+          items: state.currentReceipt.items.map((item) => ({
+            ...item,
+            assigned_to: ['all'],
+          })),
+        },
+      };
+    }),
+
+  updateTaxTip: (tax, tip) =>
+    set((state) => {
+      if (!state.currentReceipt) return state;
+      const subtotal = state.currentReceipt.items.reduce((s, i) => s + i.price, 0);
+      return {
+        currentReceipt: { ...state.currentReceipt, tax, tip, total: subtotal + tax + tip },
       };
     }),
 
   scanReceipt: async (file) => {
     const { addAgentMessage, startHealingSimulation, setActiveTab } = get();
-    addAgentMessage({ message: 'Scanning receipt with AI...', type: 'processing' });
+    // Static copy first — must not throw; iOS Safari needs this update to paint before await.
+    addAgentMessage({
+      message: 'Scanning receipt with AI…',
+      type: 'processing',
+    });
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     try {
       const receipt = await scanReceiptAPI(file);
@@ -114,36 +139,101 @@ export const useAppStore = create<AppState>((set, get) => ({
           type: item.status === 'low_confidence' ? 'searching' : 'healed',
         });
       });
-      // Heal low-confidence items
-      const itemsToHeal = receipt.items.filter(i => i.status === 'low_confidence');
-      for (const item of itemsToHeal) {
-        addAgentMessage({ message: `Healing: "${item.original_ocr_name}"...`, type: 'searching' });
+      // Heal low-confidence items — one browser-use run for the whole list (same restaurant)
+      const itemsToHeal = receipt.items.filter((i) => i.status === 'low_confidence');
+      if (itemsToHeal.length > 0) {
+        addAgentMessage({
+          message: `Healing ${itemsToHeal.length} item(s) in one web search…`,
+          type: 'searching',
+        });
         try {
-          const verifiedName = await healItemAPI(item.original_ocr_name, receipt.restaurant_name);
-          addAgentMessage({ message: `Healed: ${item.original_ocr_name} → ${verifiedName}`, type: 'healed' });
-          set(state => ({
-            currentReceipt: state.currentReceipt ? {
-              ...state.currentReceipt,
-              items: state.currentReceipt.items.map(i =>
-                i.id === item.id ? { ...i, healed_name: verifiedName, confidence_score: 0.98, status: 'verified' as const } : i
-              ),
-            } : null,
-          }));
+          const batchResults = await healBatchAPI(
+            receipt.restaurant_name,
+            itemsToHeal.map((i) => ({
+              id: i.id,
+              item_name: i.original_ocr_name,
+              price: i.price,
+            })),
+          );
+          const byId = new Map(batchResults.map((r) => [r.id, r]));
+
+          for (const item of itemsToHeal) {
+            const row = byId.get(item.id);
+            const verifiedName = row?.verified_name ?? item.original_ocr_name;
+            const conf =
+              row && row.confidence > 0 ? Math.min(0.99, row.confidence) : 0.7;
+            addAgentMessage({
+              message: `Healed: ${item.original_ocr_name} → ${verifiedName}`,
+              type: 'healed',
+            });
+            set((state) => ({
+              currentReceipt: state.currentReceipt
+                ? {
+                    ...state.currentReceipt,
+                    items: state.currentReceipt.items.map((i) =>
+                      i.id === item.id
+                        ? {
+                            ...i,
+                            healed_name: verifiedName,
+                            confidence_score: conf,
+                            status: 'verified' as const,
+                          }
+                        : i,
+                    ),
+                  }
+                : null,
+            }));
+          }
         } catch {
-          addAgentMessage({ message: `Could not heal "${item.original_ocr_name}"`, type: 'idle' });
+          addAgentMessage({
+            message: 'Could not heal low-confidence items — keeping original names',
+            type: 'idle',
+          });
+          set((state) => ({
+            currentReceipt: state.currentReceipt
+              ? {
+                  ...state.currentReceipt,
+                  items: state.currentReceipt.items.map((i) =>
+                    itemsToHeal.some((h) => h.id === i.id)
+                      ? {
+                          ...i,
+                          healed_name: i.original_ocr_name,
+                          confidence_score: 0.7,
+                          status: 'verified' as const,
+                        }
+                      : i,
+                  ),
+                }
+              : null,
+          }));
         }
       }
+      // Always finalize receipt status after healing loop
       if (itemsToHeal.length > 0) {
         addAgentMessage({ message: 'All items verified. Ready for assignment.', type: 'healed' });
-        set(state => ({
-          currentReceipt: state.currentReceipt ? { ...state.currentReceipt, status: 'healed' } : null,
-        }));
       }
+      set(state => {
+        if (!state.currentReceipt) return state;
+        // Recalculate total from current items to ensure consistency
+        const subtotal = state.currentReceipt.items.reduce((s, i) => s + i.price, 0);
+        return {
+          currentReceipt: {
+            ...state.currentReceipt,
+            status: 'healed',
+            total: subtotal + state.currentReceipt.tax + state.currentReceipt.tip,
+          },
+        };
+      });
       setActiveTab('group');
     } catch (err) {
       console.error('Backend scan failed, falling back to demo:', err);
       addAgentMessage({
-        message: `Backend unavailable — using demo data. (${err instanceof Error ? err.message : 'Unknown error'})`,
+        message: `Scan failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        type: 'error',
+      });
+      addAgentMessage({
+        message:
+          'Using demo data below. Fix: run backend on port 8000, npm run dev on 8080, open the same LAN URL as Vite shows (phone only uses :8080; /api is proxied).',
         type: 'idle',
       });
       startHealingSimulation();
@@ -158,12 +248,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Expected payload: FormData with image file
     // Expected response: { items: ReceiptItem[], restaurant_name: string, tax: number, tip: number }
 
-    const receipt = { ...mockReceipt };
+    const receipt: Receipt = {
+      ...mockReceipt,
+      items: mockReceipt.items.map((item) => ({ ...item, assigned_to: [...item.assigned_to] })),
+    };
     set({
       currentReceipt: receipt,
       agentMessages: [
         {
-          id: crypto.randomUUID(),
+          id: createId(),
           timestamp: new Date(),
           message: 'Agent Parsing Image...',
           type: 'processing',
@@ -199,11 +292,12 @@ export const useAppStore = create<AppState>((set, get) => ({
               ? { ...i, healed_name: healedName, confidence_score: 0.98, status: 'verified' as const }
               : i
           );
+          const allVerified = updatedItems.every((i) => i.status === 'verified');
           return {
             currentReceipt: {
               ...state.currentReceipt,
               items: updatedItems,
-              status: index === items.length - 1 ? 'healed' : state.currentReceipt.status,
+              status: allVerified ? 'healed' : state.currentReceipt.status,
             },
           };
         });

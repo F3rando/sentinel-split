@@ -1,8 +1,10 @@
 
+python-dotenv
 fastapi
 uvicorn
 browser-use
 langchain-google-genai
 google-generativeai
+google-genai
 python-multipart
 playwright

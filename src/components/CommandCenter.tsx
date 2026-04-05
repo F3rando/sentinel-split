@@ -2,52 +2,56 @@ import { Camera, ChevronRight, Users, DollarSign } from 'lucide-react';
 import { AgentFeed } from './AgentFeed';
 import { useAppStore } from '@/lib/store';
 import { recentSplits } from '@/lib/mockData';
-import { useRef } from 'react';
+import { useState } from 'react';
+
+const RECEIPT_INPUT_ID = 'sentinel-receipt-file';
 
 export function CommandCenter() {
   const { startHealingSimulation, setActiveTab, setUploadedImage, scanReceipt } = useAppStore();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleScan = () => {
-    fileInputRef.current?.click();
-  };
+  const [pickHint, setPickHint] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Immediate feedback on mobile (before Zustand + network). Programmatic input.click() is flaky on iOS.
+      setPickHint('Image selected — scanning…');
       setUploadedImage(file);
-      // Send to FastAPI backend; falls back to demo if backend is unavailable
-      scanReceipt(file);
+      void scanReceipt(file).finally(() => setPickHint(null));
     }
+    e.target.value = '';
   };
 
   return (
     <div className="space-y-5 animate-fade-in-up">
-      {/* Scan Button */}
-      <button
-        onClick={handleScan}
-        className="group relative w-full overflow-hidden rounded-xl bg-primary px-6 py-5 text-primary-foreground shadow-elevated transition-all active:scale-[0.98]"
-      >
-        <div className="relative z-10 flex items-center justify-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary-foreground/15">
-            <Camera className="h-6 w-6" />
-          </div>
-          <div className="text-left">
-            <span className="block text-lg font-bold tracking-tight">Scan New Receipt</span>
-            <span className="block text-xs font-medium opacity-75">Point camera at receipt to begin</span>
-          </div>
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary-foreground/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-      </button>
-
+      {/* Native <label htmlFor> — iOS Safari handles this reliably; avoid button + input.click() */}
       <input
-        ref={fileInputRef}
+        id={RECEIPT_INPUT_ID}
         type="file"
         accept="image/*"
-        capture="environment"
-        className="hidden"
+        className="sr-only"
         onChange={handleFileChange}
       />
+      <label
+        htmlFor={RECEIPT_INPUT_ID}
+        className="group relative flex w-full cursor-pointer overflow-hidden rounded-xl bg-primary px-6 py-5 text-primary-foreground shadow-elevated transition-all active:scale-[0.98]"
+      >
+        <div className="relative z-10 flex w-full items-center justify-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
+            <Camera className="h-6 w-6" />
+          </div>
+          <div className="min-w-0 text-left">
+            <span className="block text-lg font-bold tracking-tight">Scan New Receipt</span>
+            <span className="block text-xs font-medium opacity-75">Camera or choose a photo from your library</span>
+          </div>
+        </div>
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-primary-foreground/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+      </label>
+
+      {pickHint ? (
+        <p className="text-center text-sm font-medium text-accent" role="status" aria-live="polite">
+          {pickHint}
+        </p>
+      ) : null}
 
       {/* Agent Feed */}
       <AgentFeed />
