@@ -1,5 +1,5 @@
 // TODO [BACKEND]: Update this URL to your deployed FastAPI server
-export const FASTAPI_BASE_URL = 'https://kimberlee-unlucent-noneagerly.ngrok-free.dev';
+export const FASTAPI_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 import { Receipt, ReceiptItem } from './mockData';
 
@@ -18,14 +18,14 @@ interface BackendResponse {
   total: number;
 }
 
-export async function healItemAPI(item_name: string, restaurant_name: string): Promise<string> {
+export async function healItemAPI(item_name: string, restaurant_name: string, price: number = 0): Promise<string> {
   const res = await fetch(`${FASTAPI_BASE_URL}/heal`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
     },
-    body: JSON.stringify({ item_name, restaurant_name }),
+    body: JSON.stringify({ item_name, restaurant_name, price }),
   });
   if (!res.ok) throw new Error(`Heal error: ${res.status}`);
   const data = await res.json();
@@ -63,6 +63,24 @@ export async function scanReceiptAPI(file: File): Promise<Receipt> {
     assigned_to: [],
   }));
 
+  const itemSubtotal = items.reduce((sum, i) => sum + i.price, 0);
+  const tax = data.tax || 0;
+  const tip = data.tip || 0;
+  const computedTotal = itemSubtotal + tax + tip;
+
+  // Trust the backend/receipt total if provided — it may include tax/fees
+  // that weren't separately itemized. If the backend total is higher than
+  // what we can compute from items+tax+tip, back-derive the actual tax.
+  let finalTotal = computedTotal;
+  let finalTax = tax;
+  if (data.total && data.total > 0) {
+    finalTotal = data.total;
+    // If backend total is higher than items+tax+tip, the difference is unaccounted tax/fees
+    if (data.total > computedTotal + 0.01) {
+      finalTax = Math.round((data.total - tip - itemSubtotal) * 100) / 100;
+    }
+  }
+
   return {
     id: receiptId,
     user_id: 'current-user',
@@ -72,9 +90,8 @@ export async function scanReceiptAPI(file: File): Promise<Receipt> {
     restaurant_name: data.restaurant,
     created_at: new Date().toISOString(),
     items,
-    tax: data.tax,
-    tip: 0,
-    total: data.total,
-    baseTotal: data.total,
+    tax: finalTax,
+    tip,
+    total: finalTotal,
   };
 }

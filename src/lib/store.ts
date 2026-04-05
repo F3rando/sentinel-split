@@ -92,8 +92,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateTaxTip: (tax, tip) =>
     set((state) => {
       if (!state.currentReceipt) return state;
+      const subtotal = state.currentReceipt.items.reduce((s, i) => s + i.price, 0);
       return {
-        currentReceipt: { ...state.currentReceipt, tax, tip, total: state.currentReceipt.baseTotal + tip },
+        currentReceipt: { ...state.currentReceipt, tax, tip, total: subtotal + tax + tip },
       };
     }),
 
@@ -119,7 +120,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       for (const item of itemsToHeal) {
         addAgentMessage({ message: `Healing: "${item.original_ocr_name}"...`, type: 'searching' });
         try {
-          const verifiedName = await healItemAPI(item.original_ocr_name, receipt.restaurant_name);
+          // Add a 60s timeout — Browser Use needs time to search the web
+          const healPromise = healItemAPI(item.original_ocr_name, receipt.restaurant_name, item.price);
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Heal timed out')), 60000)
+          );
+          const verifiedName = await Promise.race([healPromise, timeoutPromise]);
           addAgentMessage({ message: `Healed: ${item.original_ocr_name} → ${verifiedName}`, type: 'healed' });
           set(state => ({
             currentReceipt: state.currentReceipt ? {
@@ -130,15 +136,34 @@ export const useAppStore = create<AppState>((set, get) => ({
             } : null,
           }));
         } catch {
-          addAgentMessage({ message: `Could not heal "${item.original_ocr_name}"`, type: 'idle' });
+          // Mark item as verified with original name so it doesn't stay stuck on "Verifying..."
+          addAgentMessage({ message: `Could not heal "${item.original_ocr_name}" — keeping original name`, type: 'idle' });
+          set(state => ({
+            currentReceipt: state.currentReceipt ? {
+              ...state.currentReceipt,
+              items: state.currentReceipt.items.map(i =>
+                i.id === item.id ? { ...i, healed_name: item.original_ocr_name, confidence_score: 0.7, status: 'verified' as const } : i
+              ),
+            } : null,
+          }));
         }
       }
+      // Always finalize receipt status after healing loop
       if (itemsToHeal.length > 0) {
         addAgentMessage({ message: 'All items verified. Ready for assignment.', type: 'healed' });
-        set(state => ({
-          currentReceipt: state.currentReceipt ? { ...state.currentReceipt, status: 'healed' } : null,
-        }));
       }
+      set(state => {
+        if (!state.currentReceipt) return state;
+        // Recalculate total from current items to ensure consistency
+        const subtotal = state.currentReceipt.items.reduce((s, i) => s + i.price, 0);
+        return {
+          currentReceipt: {
+            ...state.currentReceipt,
+            status: 'healed',
+            total: subtotal + state.currentReceipt.tax + state.currentReceipt.tip,
+          },
+        };
+      });
       setActiveTab('group');
     } catch (err) {
       console.error('Backend scan failed, falling back to demo:', err);
@@ -158,7 +183,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Expected payload: FormData with image file
     // Expected response: { items: ReceiptItem[], restaurant_name: string, tax: number, tip: number }
 
-    const receipt = { ...mockReceipt };
+    const receipt: Receipt = {
+      ...mockReceipt,
+      items: mockReceipt.items.map((item) => ({ ...item, assigned_to: [...item.assigned_to] })),
+    };
     set({
       currentReceipt: receipt,
       agentMessages: [
@@ -199,11 +227,12 @@ export const useAppStore = create<AppState>((set, get) => ({
               ? { ...i, healed_name: healedName, confidence_score: 0.98, status: 'verified' as const }
               : i
           );
+          const allVerified = updatedItems.every((i) => i.status === 'verified');
           return {
             currentReceipt: {
               ...state.currentReceipt,
               items: updatedItems,
-              status: index === items.length - 1 ? 'healed' : state.currentReceipt.status,
+              status: allVerified ? 'healed' : state.currentReceipt.status,
             },
           };
         });
