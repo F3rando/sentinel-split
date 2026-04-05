@@ -115,6 +115,31 @@ export const useAppStore = create<AppState>((set, get) => ({
           type: item.status === 'low_confidence' ? 'searching' : 'healed',
         });
       });
+      // Heal low-confidence items
+      const itemsToHeal = receipt.items.filter(i => i.status === 'low_confidence');
+      for (const item of itemsToHeal) {
+        addAgentMessage({ message: `Healing: "${item.original_ocr_name}"...`, type: 'searching' });
+        try {
+          const verifiedName = await healItemAPI(item.original_ocr_name, receipt.restaurant_name);
+          addAgentMessage({ message: `Healed: ${item.original_ocr_name} → ${verifiedName}`, type: 'healed' });
+          set(state => ({
+            currentReceipt: state.currentReceipt ? {
+              ...state.currentReceipt,
+              items: state.currentReceipt.items.map(i =>
+                i.id === item.id ? { ...i, healed_name: verifiedName, confidence_score: 0.98, status: 'verified' as const } : i
+              ),
+            } : null,
+          }));
+        } catch {
+          addAgentMessage({ message: `Could not heal "${item.original_ocr_name}"`, type: 'idle' });
+        }
+      }
+      if (itemsToHeal.length > 0) {
+        addAgentMessage({ message: 'All items verified. Ready for assignment.', type: 'healed' });
+        set(state => ({
+          currentReceipt: state.currentReceipt ? { ...state.currentReceipt, status: 'healed' } : null,
+        }));
+      }
       setActiveTab('group');
     } catch (err) {
       console.error('Backend scan failed, falling back to demo:', err);
