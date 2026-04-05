@@ -1,59 +1,39 @@
 
 
-# Integrate POST /heal for Low-Confidence Items
+# Fix Total — Use Backend Total as Base, Adjust with Tip
 
-## Summary
-After scanning a receipt, automatically call `POST /heal` for every item where `needs_healing` is true. Update each item's display with the returned `verified_name`, marking it as verified.
+## Problem
+`updateTaxTip` on line 95-98 recalculates total as `subtotal + tax + tip` where subtotal = sum of parsed items. Since the backend may not parse every line item, this sum is less than the real receipt total, causing it to drop from $133.32 to ~$107.
+
+The fix: store the backend's original total (which already includes tax but not tip since we zero it) and use it as the anchor. When tip changes, compute `total = backendTotal + tip`.
 
 ## Changes
 
-### 1. `src/lib/api.ts` — Add `healItemAPI` function
+### 1. `src/lib/mockData.ts` — Add `baseTotal` to Receipt interface
+Add `baseTotal: number` after `total: number`. This stores the original backend total and never changes.
 
+### 2. `src/lib/api.ts` — Set `baseTotal` from `data.total`
+In `scanReceiptAPI`, add `baseTotal: data.total` to the returned Receipt object. This is not hardcoded — it's whatever the API returns for that specific receipt scan.
+
+### 3. `src/lib/store.ts` — Fix `updateTaxTip` to use `baseTotal`
 ```ts
-export async function healItemAPI(item_name: string, restaurant_name: string): Promise<string> {
-  const res = await fetch(`${FASTAPI_BASE_URL}/heal`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'ngrok-skip-browser-warning': 'true',
-    },
-    body: JSON.stringify({ item_name, restaurant_name }),
-  });
-  if (!res.ok) throw new Error(`Heal error: ${res.status}`);
-  const data = await res.json();
-  return data.verified_name;
-}
-```
-
-### 2. `src/lib/store.ts` — Call `/heal` after scan completes
-
-In the `scanReceipt` action, after setting the receipt and logging items, loop through items with `status === 'low_confidence'` and call `healItemAPI` for each. On success, update that item's `healed_name`, `confidence_score`, and `status` to `'verified'`. Log each healing step to the agent feed.
-
-```ts
-// After setting receipt and logging items:
-const itemsToHeal = receipt.items.filter(i => i.status === 'low_confidence');
-for (const item of itemsToHeal) {
-  addAgentMessage({ message: `Healing: "${item.original_ocr_name}"...`, type: 'searching' });
-  try {
-    const verifiedName = await healItemAPI(item.original_ocr_name, receipt.restaurant_name);
-    addAgentMessage({ message: `Healed: ${item.original_ocr_name} → ${verifiedName}`, type: 'healed' });
-    // Update item in store
-    set(state => ({
-      currentReceipt: state.currentReceipt ? {
+updateTaxTip: (tax, tip) =>
+  set((state) => {
+    if (!state.currentReceipt) return state;
+    return {
+      currentReceipt: {
         ...state.currentReceipt,
-        items: state.currentReceipt.items.map(i =>
-          i.id === item.id ? { ...i, healed_name: verifiedName, confidence_score: 0.98, status: 'verified' } : i
-        ),
-      } : null,
-    }));
-  } catch {
-    addAgentMessage({ message: `Could not heal "${item.original_ocr_name}"`, type: 'idle' });
-  }
-}
+        tax,
+        tip,
+        total: state.currentReceipt.baseTotal + tip,
+      },
+    };
+  }),
 ```
 
-After all healing is done, update receipt status to `'healed'` and log "All items verified."
+### 4. `src/lib/mockData.ts` — Add `baseTotal` to `mockReceipt`
+Set `baseTotal` equal to `total` in the mock data so fallback mode still works.
 
-### 3. No UI changes needed
-`ReceiptHealer.tsx` already displays `healed_name` when present and shows the "Agent Verified" badge for `status === 'verified'` items — the healing results will appear automatically.
+## Key point
+Nothing is hardcoded. `baseTotal` is set from `data.total` — whatever the API reads from that particular receipt. It just preserves that value so tip adjustments don't cause a recalculation from incomplete item data.
 
