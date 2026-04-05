@@ -64,6 +64,64 @@ export async function healItemAPI(item_name: string, restaurant_name: string, pr
   return data.verified_name;
 }
 
+/** One low-confidence line to heal in a single `/heal-batch` run (same restaurant). */
+export interface HealBatchItemIn {
+  id: string;
+  item_name: string;
+  price: number;
+}
+
+export interface HealBatchResultRow {
+  id: string;
+  verified_name: string;
+  price: number;
+  decision: string;
+  confidence: number;
+  sources: { url: string; type: string }[];
+}
+
+const HEAL_BATCH_TIMEOUT_MS = 300_000;
+
+/**
+ * Runs one browser-use session for all items (vs. one session per line with `/heal`).
+ */
+export async function healBatchAPI(
+  restaurant_name: string,
+  items: HealBatchItemIn[],
+): Promise<HealBatchResultRow[]> {
+  if (items.length === 0) return [];
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), HEAL_BATCH_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${getFastApiBaseUrl()}/heal-batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: JSON.stringify({ restaurant_name, items }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : '';
+    if (name === 'AbortError') {
+      throw new Error(
+        `Batch heal timed out after ${HEAL_BATCH_TIMEOUT_MS / 1000}s — is FastAPI running?`,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!res.ok) throw new Error(`Heal-batch error: ${res.status}`);
+  const data = (await res.json()) as { results: HealBatchResultRow[] };
+  return data.results ?? [];
+}
+
 const SCAN_TIMEOUT_MS = 120_000;
 
 export async function scanReceiptAPI(file: File): Promise<Receipt> {

@@ -9,7 +9,12 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from scanner import scan_receipt
-from healer import heal_item, gather_candidates_with_browser_use_async, UncertainItem
+from healer import (
+    heal_item,
+    gather_candidates_with_browser_use_async,
+    gather_candidates_batch_with_browser_use_async,
+    UncertainItem,
+)
 from pydantic import BaseModel
 import logging
 import time
@@ -60,6 +65,18 @@ class HealRequest(BaseModel):
     restaurant_name: str
     price: float = 0.0
 
+
+class HealBatchItemIn(BaseModel):
+    id: str
+    item_name: str
+    price: float = 0.0
+
+
+class HealBatchRequest(BaseModel):
+    restaurant_name: str
+    items: list[HealBatchItemIn]
+
+
 @app.post("/heal")
 async def heal(request: HealRequest):
     logger.info(f"🔧 /heal — Healing '{request.item_name}' from '{request.restaurant_name}' (OCR price: ${request.price:.2f})")
@@ -108,3 +125,67 @@ async def heal(request: HealRequest):
         "confidence": result.match_confidence,
         "sources": result.sources,
     }
+
+
+@app.post("/heal-batch")
+async def heal_batch(request: HealBatchRequest):
+    """One browser-use run for multiple low-confidence lines at the same restaurant."""
+    n = len(request.items)
+    logger.info(
+        f"🔧 /heal-batch — {n} item(s) for '{request.restaurant_name}' "
+        f"(single agent run)"
+    )
+    if n == 0:
+        return {"results": []}
+
+    lines = [(it.item_name, it.price) for it in request.items]
+    start = time.time()
+
+    try:
+        candidates_by_idx = await gather_candidates_batch_with_browser_use_async(
+            restaurant_name=request.restaurant_name,
+            batch_lines=lines,
+        )
+    except Exception as e:
+        logger.error(f"🔧 /heal-batch — Browser Use failed: {e}")
+        candidates_by_idx = {i: [] for i in range(n)}
+
+    results: list[dict] = []
+    for i, it in enumerate(request.items):
+        item = UncertainItem(
+            restaurant_name=request.restaurant_name,
+            item_text=it.item_name,
+            ocr_price=it.price,
+        )
+        cands = candidates_by_idx.get(i, [])
+        healing = heal_item(item=item, candidates=cands)
+
+        if healing.best_match_name is None:
+            results.append(
+                {
+                    "id": it.id,
+                    "verified_name": it.item_name,
+                    "price": it.price,
+                    "decision": "unresolved",
+                    "confidence": 0.0,
+                    "sources": [],
+                }
+            )
+        else:
+            results.append(
+                {
+                    "id": it.id,
+                    "verified_name": healing.best_match_name,
+                    "price": healing.best_match_price
+                    if healing.best_match_price is not None
+                    else it.price,
+                    "decision": healing.decision,
+                    "confidence": healing.match_confidence,
+                    "sources": healing.sources,
+                }
+            )
+
+    elapsed = time.time() - start
+    logger.info(f"🔧 /heal-batch — Done in {elapsed:.1f}s for {n} item(s)")
+
+    return {"results": results}

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Receipt, AgentMessage, Friend, mockReceipt, healingMap } from './mockData';
-import { scanReceiptAPI, healItemAPI } from './api';
+import { scanReceiptAPI, healBatchAPI } from './api';
 import { createId } from './id';
 
 interface AppState {
@@ -16,6 +16,8 @@ interface AppState {
   addAgentMessage: (msg: Omit<AgentMessage, 'id' | 'timestamp'>) => void;
   startHealingSimulation: () => void;
   assignItem: (itemId: string, assignees: string[]) => void;
+  /** Set every line item to split evenly among you + all friends (same as per-item "Split All"). */
+  splitAllItemsEvenly: () => void;
   // TODO [BACKEND]: Tax/tip may come from FastAPI /ocr response, user can override here
   updateTaxTip: (tax: number, tip: number) => void;
   scanReceipt: (file: File) => Promise<void>;
@@ -90,6 +92,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  splitAllItemsEvenly: () =>
+    set((state) => {
+      if (!state.currentReceipt) return state;
+      return {
+        currentReceipt: {
+          ...state.currentReceipt,
+          items: state.currentReceipt.items.map((item) => ({
+            ...item,
+            assigned_to: ['all'],
+          })),
+        },
+      };
+    }),
+
   updateTaxTip: (tax, tip) =>
     set((state) => {
       if (!state.currentReceipt) return state;
@@ -123,36 +139,72 @@ export const useAppStore = create<AppState>((set, get) => ({
           type: item.status === 'low_confidence' ? 'searching' : 'healed',
         });
       });
-      // Heal low-confidence items
-      const itemsToHeal = receipt.items.filter(i => i.status === 'low_confidence');
-      for (const item of itemsToHeal) {
-        addAgentMessage({ message: `Healing: "${item.original_ocr_name}"...`, type: 'searching' });
+      // Heal low-confidence items — one browser-use run for the whole list (same restaurant)
+      const itemsToHeal = receipt.items.filter((i) => i.status === 'low_confidence');
+      if (itemsToHeal.length > 0) {
+        addAgentMessage({
+          message: `Healing ${itemsToHeal.length} item(s) in one web search…`,
+          type: 'searching',
+        });
         try {
-          // Add a 60s timeout — Browser Use needs time to search the web
-          const healPromise = healItemAPI(item.original_ocr_name, receipt.restaurant_name, item.price);
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Heal timed out')), 60000)
+          const batchResults = await healBatchAPI(
+            receipt.restaurant_name,
+            itemsToHeal.map((i) => ({
+              id: i.id,
+              item_name: i.original_ocr_name,
+              price: i.price,
+            })),
           );
-          const verifiedName = await Promise.race([healPromise, timeoutPromise]);
-          addAgentMessage({ message: `Healed: ${item.original_ocr_name} → ${verifiedName}`, type: 'healed' });
-          set(state => ({
-            currentReceipt: state.currentReceipt ? {
-              ...state.currentReceipt,
-              items: state.currentReceipt.items.map(i =>
-                i.id === item.id ? { ...i, healed_name: verifiedName, confidence_score: 0.98, status: 'verified' as const } : i
-              ),
-            } : null,
-          }));
+          const byId = new Map(batchResults.map((r) => [r.id, r]));
+
+          for (const item of itemsToHeal) {
+            const row = byId.get(item.id);
+            const verifiedName = row?.verified_name ?? item.original_ocr_name;
+            const conf =
+              row && row.confidence > 0 ? Math.min(0.99, row.confidence) : 0.7;
+            addAgentMessage({
+              message: `Healed: ${item.original_ocr_name} → ${verifiedName}`,
+              type: 'healed',
+            });
+            set((state) => ({
+              currentReceipt: state.currentReceipt
+                ? {
+                    ...state.currentReceipt,
+                    items: state.currentReceipt.items.map((i) =>
+                      i.id === item.id
+                        ? {
+                            ...i,
+                            healed_name: verifiedName,
+                            confidence_score: conf,
+                            status: 'verified' as const,
+                          }
+                        : i,
+                    ),
+                  }
+                : null,
+            }));
+          }
         } catch {
-          // Mark item as verified with original name so it doesn't stay stuck on "Verifying..."
-          addAgentMessage({ message: `Could not heal "${item.original_ocr_name}" — keeping original name`, type: 'idle' });
-          set(state => ({
-            currentReceipt: state.currentReceipt ? {
-              ...state.currentReceipt,
-              items: state.currentReceipt.items.map(i =>
-                i.id === item.id ? { ...i, healed_name: item.original_ocr_name, confidence_score: 0.7, status: 'verified' as const } : i
-              ),
-            } : null,
+          addAgentMessage({
+            message: 'Could not heal low-confidence items — keeping original names',
+            type: 'idle',
+          });
+          set((state) => ({
+            currentReceipt: state.currentReceipt
+              ? {
+                  ...state.currentReceipt,
+                  items: state.currentReceipt.items.map((i) =>
+                    itemsToHeal.some((h) => h.id === i.id)
+                      ? {
+                          ...i,
+                          healed_name: i.original_ocr_name,
+                          confidence_score: 0.7,
+                          status: 'verified' as const,
+                        }
+                      : i,
+                  ),
+                }
+              : null,
           }));
         }
       }
