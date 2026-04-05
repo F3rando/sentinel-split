@@ -59,7 +59,7 @@ export async function scanReceiptAPI(file: File): Promise<Receipt> {
     created_at: new Date().toISOString(),
     items,
     tax: data.tax,
-    tip: data.tip,
+    tip: 0,
     total: data.total,
   };
 }

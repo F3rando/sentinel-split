@@ -92,8 +92,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateTaxTip: (tax, tip) =>
     set((state) => {
       if (!state.currentReceipt) return state;
+      const subtotal = state.currentReceipt.items.reduce((s, i) => s + i.price, 0);
       return {
-        currentReceipt: { ...state.currentReceipt, tax, tip },
+        currentReceipt: { ...state.currentReceipt, tax, tip, total: subtotal + tax + tip },
       };
     }),
 
