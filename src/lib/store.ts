@@ -227,13 +227,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       setActiveTab('group');
     } catch (err) {
       console.error('Backend scan failed, falling back to demo:', err);
+      const hint =
+        import.meta.env.DEV
+          ? 'Local fix: run FastAPI on port 8000 and npm run dev on 8080 (/api is proxied).'
+          : 'Deployed fix: set VITE_API_URL in Vercel to your Railway https URL, save for Production, then Redeploy the frontend (env is baked at build time).';
       addAgentMessage({
         message: `Scan failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
         type: 'error',
       });
       addAgentMessage({
-        message:
-          'Using demo data below. Fix: run backend on port 8000, npm run dev on 8080, open the same LAN URL as Vite shows (phone only uses :8080; /api is proxied).',
+        message: `Using demo data below. ${hint}`,
         type: 'idle',
       });
       startHealingSimulation();

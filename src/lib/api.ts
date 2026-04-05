@@ -3,18 +3,19 @@ import { createId } from './id';
 
 /**
  * Backend base URL for fetch calls.
- * - In dev: same-origin `/api` — Vite proxies to FastAPI on 127.0.0.1:8000. The phone only opens :8080,
- *   which fixes iOS issues with cross-origin requests to :8000 (CORS, local network, firewall).
- * - Production: set VITE_API_URL to your hosted FastAPI (e.g. Railway/Render/Fly). Vercel only serves the
- *   static frontend — it does not run this Python API; guessing hostname:8000 would hang until timeout.
+ * - `npm run dev`: same-origin `/api` — Vite proxies to FastAPI on 127.0.0.1:8000.
+ * - Production build (`vite build`): **must** set `VITE_API_URL` to your Railway (etc.) HTTPS origin.
+ *   Vite bakes this in at **build** time — set the var in Vercel, then redeploy.
+ * - Never guess `your-frontend-domain:8000` — that breaks custom domains and falls back to demo data.
  */
-function isStaticHostWithoutBackend(hostname: string): boolean {
-  return (
-    /\.vercel\.app$/i.test(hostname) ||
-    /\.netlify\.app$/i.test(hostname) ||
-    /\.cloudflarepages\.com$/i.test(hostname) ||
-    /\.github\.io$/i.test(hostname)
-  );
+function normalizeProductionBase(url: string): string {
+  const base = url.trim().replace(/\/$/, "");
+  if (typeof window !== "undefined" && window.location.protocol === "https:" && base.startsWith("http:")) {
+    throw new Error(
+      "VITE_API_URL must start with https:// when the site is served over HTTPS (use your Railway HTTPS URL).",
+    );
+  }
+  return base;
 }
 
 export function getFastApiBaseUrl(): string {
@@ -26,7 +27,7 @@ export function getFastApiBaseUrl(): string {
       (fromEnv.startsWith("https:") ||
         /ngrok|trycloudflare|\.railway\.|\.fly\.dev|\.vercel\.app/i.test(fromEnv))
     ) {
-      return fromEnv;
+      return normalizeProductionBase(fromEnv);
     }
     if (typeof window !== "undefined") {
       return `${window.location.origin}/api`;
@@ -34,21 +35,23 @@ export function getFastApiBaseUrl(): string {
     return "http://127.0.0.1:8080/api";
   }
 
-  if (fromEnv) return fromEnv;
+  // Production build — VITE_API_URL is required for real deploys (Vercel, etc.)
+  if (fromEnv) {
+    return normalizeProductionBase(fromEnv);
+  }
 
   if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    if (hostname !== "localhost" && hostname !== "127.0.0.1") {
-      if (isStaticHostWithoutBackend(hostname)) {
-        throw new Error(
-          "VITE_API_URL is not set. Deploy FastAPI separately (e.g. Railway, Render, Fly.io), then in Vercel → " +
-            "Project → Settings → Environment Variables add VITE_API_URL=https://your-api-host.example (no trailing slash), redeploy.",
-        );
-      }
-      return `${protocol}//${hostname}:8000`;
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://localhost:8000";
     }
   }
-  return "http://localhost:8000";
+
+  throw new Error(
+    "VITE_API_URL is missing in this build. In Vercel: Settings → Environment Variables → add " +
+      "VITE_API_URL=https://your-railway-url (no trailing slash), apply to Production, then Redeploy. " +
+      "Vite only reads this when the frontend is built.",
+  );
 }
 
 interface BackendItem {
