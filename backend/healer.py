@@ -93,6 +93,56 @@ SOURCE_TRUST = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Confidence heuristics (carried over from original healer for scanner.py)
+# ---------------------------------------------------------------------------
+
+COMMON_SHORT_WORDS = {
+	"the", "and", "or", "in", "on", "at", "to", "a", "an",
+	"hot", "red", "tea", "ice", "egg", "beef", "fish", "rice",
+	"pho", "bbq", "blt", "ahi", "ono", "poi", "mac"
+}
+
+
+def get_confidence(item_name: str) -> float:
+	"""Heuristic confidence score based on vowel density and abbreviation signals."""
+	issues = 0
+
+	if len(item_name) <= 3:
+		issues += 4
+
+	letters = [c.lower() for c in item_name if c.isalpha()]
+	if letters:
+		vowels = set("aeiou")
+		vowel_ratio = sum(1 for c in letters if c in vowels) / len(letters)
+		if vowel_ratio < 0.15:
+			issues += 4
+		elif vowel_ratio < 0.25:
+			issues += 2
+
+	words = item_name.split()
+	for word in words:
+		clean = word.lower().strip(".,")
+		if clean in COMMON_SHORT_WORDS:
+			continue
+		if len(clean) <= 4:
+			has_vowel = any(c in "aeiou" for c in clean)
+			if not has_vowel:
+				issues += 3
+
+	confidence = max(0.0, 1.0 - (issues * 0.2))
+	return round(confidence, 2)
+
+
+def should_heal(item_name: str) -> bool:
+	"""Return True if the item name looks garbled enough to need healing."""
+	return get_confidence(item_name) < 0.80
+
+
+# ---------------------------------------------------------------------------
+# Name / price similarity helpers
+# ---------------------------------------------------------------------------
+
 def _normalize_item_name(text: str) -> str:
 	lowered = text.lower().strip()
 	lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
@@ -125,7 +175,6 @@ def _price_similarity(ocr_price: float, candidate_price: float | None) -> float:
 	if candidate_price is None or candidate_price < 0:
 		return 0.0
 
-	# Gaussian-style decay around 0 difference. Sigma chosen so +/- $2 still has useful score.
 	sigma = 2.0
 	diff = abs(ocr_price - candidate_price)
 	return math.exp(-((diff**2) / (2 * sigma**2)))
@@ -136,8 +185,6 @@ def _rank_candidate(item: UncertainItem, candidate: MenuCandidate) -> RankedCand
 	price_sim = _price_similarity(item.ocr_price, candidate.price)
 	source_trust = SOURCE_TRUST.get(candidate.source_type, SOURCE_TRUST["third_party"])
 
-	# Name similarity is the primary confidence signal.
-	# Price is only used as a second-pass tie-breaker when the name match is plausible but not strong.
 	score = name_sim
 	if item.ocr_price > 0 and candidate.price is not None:
 		if name_sim >= 0.55 and name_sim < 0.80:
@@ -203,7 +250,6 @@ def _extract_agent_output_text(result: object) -> str:
 			except TypeError:
 				pass
 
-	# Support both string attributes and callable methods (e.g., final_result()).
 	for attr_name in ["final_result", "result", "output", "message", "content"]:
 		attr_value = getattr(result, attr_name, None)
 		if callable(attr_value):
@@ -213,7 +259,6 @@ def _extract_agent_output_text(result: object) -> str:
 				continue
 		_collect(attr_value)
 
-	# Fallback to last extracted action content from history when available.
 	action_results = getattr(result, "action_results", None)
 	if callable(action_results):
 		try:
@@ -226,7 +271,6 @@ def _extract_agent_output_text(result: object) -> str:
 				collected.append(extracted.strip())
 				break
 
-	# Last resort: string conversion of the whole object.
 	result_text = str(result).strip()
 	if result_text:
 		collected.append(result_text)
@@ -301,7 +345,6 @@ def _candidate_from_free_text(
 	url_match = re.search(r"https?://[^\s'\")]+", text)
 	url = url_match.group(0) if url_match else "https://unknown-source.local"
 
-	# Prefer quoted item names first, then explicit 'identified X as' phrasing.
 	name = ""
 	quoted_name = re.search(r"identified\s+['\"]([^'\"]+)['\"]", text, re.IGNORECASE)
 	if quoted_name:
@@ -473,7 +516,6 @@ def gather_candidates_with_browser_use(
 			)
 		)
 	except RuntimeError as err:
-		# Handles case where caller already runs in an event loop.
 		if "event loop" not in str(err).lower():
 			raise
 		loop = asyncio.new_event_loop()
