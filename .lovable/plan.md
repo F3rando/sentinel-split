@@ -1,31 +1,46 @@
 
 
-# Fix ngrok "Failed to fetch" — Add Required Header
+# Fix Total Display — Use Backend Total Directly
 
 ## Problem
-The fetch to `https://kimberlee-unlucent-noneagerly.ngrok-free.dev/scan` fails with "Failed to fetch" before even getting a response. This happens because **ngrok free tier serves an interstitial warning page** for requests that don't include a specific header. The browser's CORS preflight (OPTIONS request) hits this interstitial instead of the FastAPI CORS response, causing the entire request to be blocked.
+Two issues causing the wrong total:
 
-## Fix
-Add the `ngrok-skip-browser-warning` header to the fetch call in `src/lib/api.ts`. This tells ngrok to pass the request straight through to your FastAPI server.
+1. **ReceiptHealer.tsx (line 201)** recalculates total as `sum(item prices) + tax + tip` instead of using the backend-provided `currentReceipt.total`. If Gemini missed items or parsed prices slightly off, this recalculated total won't match the real receipt.
 
-### Change in `src/lib/api.ts`
-Update the fetch call (line 25-28) to include the ngrok header:
+2. **Settlement.tsx** uses `currentReceipt.total` correctly for Grand Total, but computes `taxTipMultiplier = total / subtotal` — if items are missing, the multiplier gets inflated, skewing per-person splits.
 
-```ts
-const res = await fetch(`${FASTAPI_BASE_URL}/scan`, {
-  method: 'POST',
-  headers: {
-    'ngrok-skip-browser-warning': 'true',
-  },
-  body: formData,
-});
+## Changes
+
+### 1. ReceiptHealer.tsx — Use `currentReceipt.total` directly
+
+**Line 199-203**: Replace the recalculated total with the backend value:
+
+```tsx
+// Before (recalculates)
+${(currentReceipt.items.reduce((s, i) => s + i.price, 0) + currentReceipt.tax + currentReceipt.tip).toFixed(2)}
+
+// After (uses backend total)
+${currentReceipt.total.toFixed(2)}
 ```
 
-That's it — one header addition. The backend CORS config already allows all origins/headers, so once ngrok stops intercepting, the request will go through to FastAPI normally.
+Also show the item subtotal separately so the user can see if items are missing:
 
-## Why this works
-- ngrok free tunnels show a "Visit Site" interstitial page to browser requests
-- This interstitial doesn't respond to CORS preflight correctly
-- The `ngrok-skip-browser-warning` header bypasses it entirely
-- Your FastAPI backend already has `allow_headers=["*"]` so it will accept this extra header
+```tsx
+<div className="flex justify-between text-sm">
+  <span className="text-muted-foreground">Subtotal ({currentReceipt.items.length} items)</span>
+  <span className="text-foreground font-semibold">
+    ${currentReceipt.items.reduce((s, i) => s + i.price, 0).toFixed(2)}
+  </span>
+</div>
+```
+
+### 2. Settlement.tsx — Keep using `currentReceipt.total` (already correct)
+
+No changes needed here — it already uses `currentReceipt.total` for Grand Total display.
+
+## Technical Details
+
+- The backend's Gemini prompt asks for the total from the receipt image, so `data.total` should match the printed receipt total ($133.32)
+- If Gemini misses items, the item subtotal will be less than expected, but the displayed total will still be correct since it comes from the backend
+- The `taxTipMultiplier` in Settlement will auto-adjust proportionally, which is the correct behavior for splitting
 
