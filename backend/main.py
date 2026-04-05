@@ -40,6 +40,12 @@ async def add_private_network_cors_header(request: Request, call_next):
     return response
 
 
+@app.get("/")
+async def root():
+    """So visiting the Railway base URL in a browser is not a 404."""
+    return {"status": "ok", "service": "checkmate", "docs": "/docs", "health": "/health"}
+
+
 @app.post("/scan")
 async def scan(file: UploadFile = File(...)):
     logger.info(f"📸 /scan — Received file: {file.filename} ({file.content_type})")

@@ -5,8 +5,18 @@ import { createId } from './id';
  * Backend base URL for fetch calls.
  * - In dev: same-origin `/api` — Vite proxies to FastAPI on 127.0.0.1:8000. The phone only opens :8080,
  *   which fixes iOS issues with cross-origin requests to :8000 (CORS, local network, firewall).
- * - Production / preview: VITE_API_URL, or same hostname on port 8000 when not localhost.
+ * - Production: set VITE_API_URL to your hosted FastAPI (e.g. Railway/Render/Fly). Vercel only serves the
+ *   static frontend — it does not run this Python API; guessing hostname:8000 would hang until timeout.
  */
+function isStaticHostWithoutBackend(hostname: string): boolean {
+  return (
+    /\.vercel\.app$/i.test(hostname) ||
+    /\.netlify\.app$/i.test(hostname) ||
+    /\.cloudflarepages\.com$/i.test(hostname) ||
+    /\.github\.io$/i.test(hostname)
+  );
+}
+
 export function getFastApiBaseUrl(): string {
   const fromEnv = import.meta.env.VITE_API_URL?.trim();
 
@@ -29,6 +39,12 @@ export function getFastApiBaseUrl(): string {
   if (typeof window !== "undefined") {
     const { protocol, hostname } = window.location;
     if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+      if (isStaticHostWithoutBackend(hostname)) {
+        throw new Error(
+          "VITE_API_URL is not set. Deploy FastAPI separately (e.g. Railway, Render, Fly.io), then in Vercel → " +
+            "Project → Settings → Environment Variables add VITE_API_URL=https://your-api-host.example (no trailing slash), redeploy.",
+        );
+      }
       return `${protocol}//${hostname}:8000`;
     }
   }
